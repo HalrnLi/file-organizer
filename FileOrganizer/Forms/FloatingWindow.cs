@@ -1,5 +1,6 @@
 using FileOrganizer.Core;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace FileOrganizer.Forms;
@@ -8,10 +9,13 @@ public class FloatingWindow : Form
 {
     private readonly ConfigManager _config;
     private NotifyIcon _trayIcon = null!;
-    private const int WindowSize = 80;
-    private const int HoverOpacity = 90;
+    private const int WindowSize = 88;
     private Point _dragStart;
     private bool _isDragging;
+    private bool _isDragOver;
+    private Label _iconLabel = null!;
+    private Label _textLabel = null!;
+    private Panel _contentPanel = null!;
 
     public FloatingWindow(ConfigManager config)
     {
@@ -31,28 +35,19 @@ public class FloatingWindow : Form
 
         var trayMenu = new ContextMenuStrip();
         trayMenu.Items.Add("显示/隐藏悬浮窗", null, (s, e) => ToggleVisible());
-        trayMenu.Items.Add("-");
+        trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("规则管理", null, (s, e) => ShowRuleManager());
         trayMenu.Items.Add("设置", null, (s, e) => ShowSettings());
-        trayMenu.Items.Add("-");
+        trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("退出", null, (s, e) => ExitApp());
         _trayIcon.ContextMenuStrip = trayMenu;
-
         _trayIcon.DoubleClick += (s, e) => ToggleVisible();
     }
 
     private void ToggleVisible()
     {
-        if (Visible)
-        {
-            Hide();
-        }
-        else
-        {
-            Show();
-            WindowState = FormWindowState.Normal;
-            BringToFront();
-        }
+        if (Visible) { Hide(); }
+        else { Show(); WindowState = FormWindowState.Normal; BringToFront(); }
     }
 
     private void ShowRuleManager()
@@ -76,55 +71,104 @@ public class FloatingWindow : Form
 
     private void InitializeComponent()
     {
-        Text = "File Organizer";
+        Text = "";
         Size = new Size(WindowSize, WindowSize);
         FormBorderStyle = FormBorderStyle.None;
         TopMost = true;
         ShowInTaskbar = false;
         AllowDrop = true;
-        Opacity = 0.5;
-
-        BackColor = Color.FromArgb(52, 73, 94);
-        var iconLabel = new Label
-        {
-            Text = "📁",
-            Font = new Font("Segoe UI", 28),
-            ForeColor = Color.White,
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter,
-            AllowDrop = true,
-            Cursor = Cursors.Hand
-        };
-        Controls.Add(iconLabel);
+        BackColor = Color.FromArgb(35, 38, 47);
+        StartPosition = FormStartPosition.Manual;
+        DoubleBuffered = true;
 
         // Restore saved position
         if (_config.Settings.FloatingWindowX != 0 || _config.Settings.FloatingWindowY != 0)
-        {
             Location = new Point(_config.Settings.FloatingWindowX, _config.Settings.FloatingWindowY);
-        }
 
-        // File drag-drop on form
-        DragEnter += FloatingWindow_DragEnter;
-        DragLeave += FloatingWindow_DragLeave;
-        DragDrop += FloatingWindow_DragDrop;
+        // Apply rounded region
+        UpdateRegion();
 
-        // File drag-drop on iconLabel (this is what gets triggered when dropping files)
-        iconLabel.DragEnter += FloatingWindow_DragEnter;
-        iconLabel.DragLeave += FloatingWindow_DragLeave;
-        iconLabel.DragDrop += FloatingWindow_DragDrop;
+        // Content panel (centers icon + label)
+        _contentPanel = new Panel
+        {
+            Size = new Size(WindowSize, WindowSize),
+            Location = Point.Empty,
+            BackColor = Color.Transparent,
+            AllowDrop = true,
+            Cursor = Cursors.Hand
+        };
 
-        // Window drag-move on iconLabel
-        iconLabel.MouseDown += IconLabel_MouseDown;
-        iconLabel.MouseMove += IconLabel_MouseMove;
-        iconLabel.MouseUp += IconLabel_MouseUp;
+        // Folder icon (Unicode: folder + down arrow)
+        _iconLabel = new Label
+        {
+            Text = "\U0001F4C2",   // 📂 open folder
+            Font = new Font("Segoe UI", 26, FontStyle.Regular),
+            ForeColor = Color.FromArgb(190, 195, 200),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Size = new Size(WindowSize, 44),
+            Location = new Point(0, 8),
+            BackColor = Color.Transparent,
+            AllowDrop = true,
+            Cursor = Cursors.Hand
+        };
 
-        // Right-click context menu on iconLabel
-        var ctxMenu = new ContextMenuStrip();
-        ctxMenu.Items.Add("规则管理", null, (s, e) => ShowRuleManager());
-        ctxMenu.Items.Add("设置", null, (s, e) => ShowSettings());
-        ctxMenu.Items.Add("-");
-        ctxMenu.Items.Add("退出", null, (s, e) => ExitApp());
-        iconLabel.ContextMenuStrip = ctxMenu;
+        _textLabel = new Label
+        {
+            Text = "DROP",
+            Font = Theme.UiFontMonoSmall,
+            ForeColor = Theme.Muted,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Size = new Size(WindowSize, 22),
+            Location = new Point(0, 52),
+            BackColor = Color.Transparent,
+            AllowDrop = true,
+            Cursor = Cursors.Hand
+        };
+
+        _contentPanel.Controls.Add(_iconLabel);
+        _contentPanel.Controls.Add(_textLabel);
+        Controls.Add(_contentPanel);
+
+        // Drag-drop events → contentPanel and form
+        _contentPanel.DragEnter += OnDragEnter;
+        _contentPanel.DragLeave += OnDragLeave;
+        _contentPanel.DragDrop += OnDragDrop;
+        DragEnter += OnDragEnter;
+        DragLeave += OnDragLeave;
+        DragDrop += OnDragDrop;
+
+        // Drag-move on contentPanel
+        _contentPanel.MouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                _isDragging = true;
+                _dragStart = e.Location;
+            }
+        };
+        _contentPanel.MouseMove += (s, e) =>
+        {
+            if (!_isDragging) return;
+            Left += e.X - _dragStart.X;
+            Top += e.Y - _dragStart.Y;
+        };
+        _contentPanel.MouseUp += (s, e) =>
+        {
+            if (!_isDragging) return;
+            _isDragging = false;
+            var screen = Screen.FromPoint(Location).WorkingArea;
+            Left = Math.Clamp(Left, 0, screen.Width - Width);
+            Top = Math.Clamp(Top, 0, screen.Height - Height);
+            _config.Settings.FloatingWindowX = Left;
+            _config.Settings.FloatingWindowY = Top;
+            Task.Run(() => _config.SaveSettings());
+        };
+
+        // Double-click: flash drag-over effect
+        _contentPanel.DoubleClick += (s, e) => FlashDragOver();
+
+        // Right-click context menu
+        _contentPanel.ContextMenuStrip = BuildContextMenu();
 
         // Minimize to tray on close
         FormClosing += (s, e) =>
@@ -135,60 +179,45 @@ public class FloatingWindow : Form
                 Hide();
             }
         };
+
+        // Repaint on resize (region)
+        Resize += (s, e) => UpdateRegion();
     }
 
-    private void IconLabel_MouseDown(object? sender, MouseEventArgs e)
+    private ContextMenuStrip BuildContextMenu()
     {
-        if (e.Button == MouseButtons.Left)
-        {
-            _isDragging = true;
-            _dragStart = e.Location;
-        }
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("规则管理", null, (s, e) => ShowRuleManager());
+        menu.Items.Add("设置", null, (s, e) => ShowSettings());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("退出", null, (s, e) => ExitApp());
+        return menu;
     }
 
-    private void IconLabel_MouseMove(object? sender, MouseEventArgs e)
+    private async void FlashDragOver()
     {
-        if (_isDragging)
-        {
-            Left += e.X - _dragStart.X;
-            Top += e.Y - _dragStart.Y;
-        }
+        SetDragOver(true);
+        await Task.Delay(800);
+        SetDragOver(false);
     }
 
-    private void IconLabel_MouseUp(object? sender, MouseEventArgs e)
-    {
-        if (_isDragging)
-        {
-            _isDragging = false;
-            var screen = Screen.FromPoint(Location).WorkingArea;
-            Left = Math.Clamp(Left, 0, screen.Width - Width);
-            Top = Math.Clamp(Top, 0, screen.Height - Height);
-            _config.Settings.FloatingWindowX = Left;
-            _config.Settings.FloatingWindowY = Top;
-            Task.Run(() => _config.SaveSettings());
-        }
-    }
-
-    private void FloatingWindow_DragEnter(object? sender, DragEventArgs e)
+    private void OnDragEnter(object? sender, DragEventArgs e)
     {
         if (e.Data!.GetDataPresent(DataFormats.FileDrop))
         {
             e.Effect = DragDropEffects.Move;
-            Opacity = HoverOpacity / 100.0;
-            BackColor = Color.FromArgb(41, 128, 185);
+            SetDragOver(true);
         }
     }
 
-    private void FloatingWindow_DragLeave(object? sender, EventArgs e)
+    private void OnDragLeave(object? sender, EventArgs e)
     {
-        Opacity = 0.5;
-        BackColor = Color.FromArgb(52, 73, 94);
+        SetDragOver(false);
     }
 
-    private void FloatingWindow_DragDrop(object? sender, DragEventArgs e)
+    private void OnDragDrop(object? sender, DragEventArgs e)
     {
-        Opacity = 0.5;
-        BackColor = Color.FromArgb(52, 73, 94);
+        SetDragOver(false);
 
         if (e.Data!.GetDataPresent(DataFormats.FileDrop))
         {
@@ -209,12 +238,63 @@ public class FloatingWindow : Form
         }
     }
 
+    private void SetDragOver(bool on)
+    {
+        if (_isDragOver == on) return;
+        _isDragOver = on;
+
+        if (on)
+        {
+            BackColor = Color.FromArgb(45, 60, 50);
+            _iconLabel.ForeColor = Color.FromArgb(220, 240, 220);
+            _textLabel.ForeColor = Theme.Accent;
+        }
+        else
+        {
+            BackColor = Color.FromArgb(35, 38, 47);
+            _iconLabel.ForeColor = Color.FromArgb(190, 195, 200);
+            _textLabel.ForeColor = Theme.Muted;
+        }
+        Invalidate();
+    }
+
+    private void UpdateRegion()
+    {
+        var corner = 16;
+        using var path = RoundedRectPath(ClientRectangle, corner);
+        Region = new Region(path);
+    }
+
+    private static GraphicsPath RoundedRectPath(Rectangle rect, int radius)
+    {
+        var path = new GraphicsPath();
+        int d = radius * 2;
+        path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+        path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        var g = e.Graphics;
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+
+        // Border
+        var borderColor = _isDragOver ? Theme.Accent : Theme.Border;
+        var borderWidth = _isDragOver ? 2f : 1f;
+        using var pen = new Pen(borderColor, borderWidth);
+        using var path = RoundedRectPath(
+            new Rectangle(1, 1, ClientSize.Width - 2, ClientSize.Height - 2), 15);
+        g.DrawPath(pen, path);
+    }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-        {
-            _trayIcon?.Dispose();
-        }
+        if (disposing) _trayIcon?.Dispose();
         base.Dispose(disposing);
     }
 }

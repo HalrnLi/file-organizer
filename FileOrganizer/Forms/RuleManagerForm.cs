@@ -13,6 +13,16 @@ public class RuleManagerForm : Form
     private Button _importButton = null!;
     private Button _exportButton = null!;
 
+    // Inline dialog controls
+    private Panel _inlineOverlay = null!;
+    private TextBox _inlineNameBox = null!;
+    private TextBox _inlinePathBox = null!;
+    private string? _editingRuleId;
+
+    // Titlebar drag
+    private bool _titleDragging;
+    private Point _titleDragStart, _formStartPos;
+
     public RuleManagerForm(ConfigManager config)
     {
         _config = config;
@@ -22,47 +32,253 @@ public class RuleManagerForm : Form
 
     private void InitializeComponent()
     {
-        Text = "规则管理";
-        Size = new Size(700, 450);
+        Text = "";
+        Size = new Size(640, 450);
         StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = false;
+        FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
+        BackColor = Theme.Surface;
+        DoubleBuffered = true;
 
+        // --- Titlebar ---
+        var titleBar = new Panel
+        {
+            Height = 36, Dock = DockStyle.Top,
+            BackColor = Color.FromArgb(40, 43, 50),
+            Cursor = Cursors.SizeAll
+        };
+        var titleLabel = new Label
+        {
+            Text = "规则管理", Left = 14, Top = 8,
+            Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+            ForeColor = Theme.Fg, BackColor = Color.Transparent,
+            AutoSize = true
+        };
+        var closeBtn = new Button
+        {
+            Text = "×", Size = new Size(28, 28),
+            Top = 4, Left = Width - 36,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 14f),
+            ForeColor = Theme.Muted, BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Cursor = Cursors.Hand, TabStop = false
+        };
+        closeBtn.FlatAppearance.BorderSize = 0;
+        closeBtn.FlatAppearance.MouseOverBackColor = Theme.Danger;
+        closeBtn.Click += (s, e) => Close();
+        titleBar.Controls.Add(titleLabel);
+        titleBar.Controls.Add(closeBtn);
+        titleBar.MouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                _titleDragging = true;
+                _titleDragStart = e.Location;
+                _formStartPos = Location;
+            }
+        };
+        titleBar.MouseMove += (s, e) =>
+        {
+            if (!_titleDragging) return;
+            Location = new Point(
+                _formStartPos.X + e.X - _titleDragStart.X,
+                _formStartPos.Y + e.Y - _titleDragStart.Y);
+        };
+        titleBar.MouseUp += (s, e) => _titleDragging = false;
+        Controls.Add(titleBar);
+
+        // --- Table ---
         _grid = new DataGridView
         {
-            Top = 10,
-            Left = 10,
-            Width = 660,
-            Height = 300,
+            Top = 44, Left = 12, Width = 600, Height = 300,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
             ReadOnly = true,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             MultiSelect = false,
-            RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
         };
         _grid.Columns.Add("Name", "标签名");
         _grid.Columns.Add("Path", "目标路径");
-        _grid.Columns[0].FillWeight = 30;
-        _grid.Columns[1].FillWeight = 70;
+        _grid.Columns[0].Width = 120;
+        _grid.Columns[1].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+        Theme.StyleDataGridView(_grid);
+        Controls.Add(_grid);
 
-        _addButton = new Button { Text = "添加", Top = 325, Left = 10, Width = 80, Height = 30 };
-        _addButton.Click += AddButton_Click;
+        // --- Buttons ---
+        var btnY = 358;
+        _addButton = CreateToolButton("添加", 12, btnY);
+        _editButton = CreateToolButton("编辑", 98, btnY);
+        _deleteButton = CreateToolButton("删除", 184, btnY, danger: true);
+        _importButton = CreateToolButton("导入", 310, btnY);
+        _exportButton = CreateToolButton("导出", 396, btnY);
 
-        _editButton = new Button { Text = "编辑", Top = 325, Left = 100, Width = 80, Height = 30 };
-        _editButton.Click += EditButton_Click;
+        _addButton.Click += (s, e) => ShowInlineDialog();
+        _editButton.Click += (s, e) =>
+        {
+            if (_grid.SelectedRows.Count == 0) return;
+            var rule = (Rule)_grid.SelectedRows[0].Tag!;
+            _editingRuleId = rule.Id;
+            ShowInlineDialog("编辑规则", rule.Name, rule.Path);
+        };
+        _deleteButton.Click += (s, e) => DeleteRule();
+        _importButton.Click += (s, e) => ImportRules();
+        _exportButton.Click += (s, e) => ExportRules();
 
-        _deleteButton = new Button { Text = "删除", Top = 325, Left = 190, Width = 80, Height = 30 };
-        _deleteButton.Click += DeleteButton_Click;
+        Controls.AddRange(new Control[] { _addButton, _editButton, _deleteButton, _importButton, _exportButton });
 
-        _importButton = new Button { Text = "导入", Top = 325, Left = 310, Width = 80, Height = 30 };
-        _importButton.Click += ImportButton_Click;
+        // --- Inline dialog overlay ---
+        BuildInlineDialog();
 
-        _exportButton = new Button { Text = "导出", Top = 325, Left = 400, Width = 80, Height = 30 };
-        _exportButton.Click += ExportButton_Click;
+        // Paint border
+        Paint += (s, e) =>
+        {
+            using var pen = new Pen(Theme.Border, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        };
+    }
 
-        Controls.AddRange(new Control[] { _grid, _addButton, _editButton, _deleteButton, _importButton, _exportButton });
+    private static Button CreateToolButton(string text, int x, int y, bool danger = false)
+    {
+        var btn = new Button
+        {
+            Text = text, Top = y, Left = x, Width = 75, Height = 28
+        };
+        Theme.StyleButton(btn, danger: danger);
+        return btn;
+    }
+
+    private void BuildInlineDialog()
+    {
+        _inlineOverlay = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(0, 0, 0, 0),
+            Visible = false
+        };
+        _inlineOverlay.Paint += (s, e) =>
+        {
+            using var brush = new SolidBrush(Color.FromArgb(120, 0, 0, 0));
+            e.Graphics.FillRectangle(brush, _inlineOverlay.ClientRectangle);
+        };
+
+        var box = new Panel
+        {
+            Size = new Size(360, 200),
+            BackColor = Theme.Surface,
+            BorderStyle = BorderStyle.None
+        };
+        box.Paint += (s, e) =>
+        {
+            using var pen = new Pen(Theme.Border);
+            e.Graphics.DrawRectangle(pen, 0, 0, box.Width - 1, box.Height - 1);
+        };
+
+        var dialogTitle = new Label
+        {
+            Text = "添加规则", Top = 16, Left = 16,
+            Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+            ForeColor = Theme.Fg, BackColor = Color.Transparent,
+            AutoSize = true, Name = "dlgTitle"
+        };
+
+        var nameLabel = new Label { Text = "标签名", Top = 48, Left = 16, AutoSize = true };
+        Theme.StyleLabel(nameLabel, muted: true);
+
+        _inlineNameBox = new TextBox { Top = 66, Left = 16, Width = 328 };
+        Theme.StyleTextBox(_inlineNameBox);
+
+        var pathLabel = new Label { Text = "目标路径", Top = 100, Left = 16, AutoSize = true };
+        Theme.StyleLabel(pathLabel, muted: true);
+
+        _inlinePathBox = new TextBox { Top = 118, Left = 16, Width = 240 };
+        Theme.StyleTextBox(_inlinePathBox, mono: true);
+
+        var browseBtn = new Button { Text = "浏览...", Top = 117, Left = 262, Width = 82, Height = 25 };
+        Theme.StyleButton(browseBtn);
+        browseBtn.Click += (s, e) =>
+        {
+            using var dlg = new FolderBrowserDialog { SelectedPath = _inlinePathBox.Text };
+            if (dlg.ShowDialog() == DialogResult.OK)
+                _inlinePathBox.Text = dlg.SelectedPath;
+        };
+
+        var cancelBtn = new Button { Text = "取消", Top = 158, Left = 220, Width = 60, Height = 28 };
+        Theme.StyleButton(cancelBtn);
+        cancelBtn.Click += (s, e) => _inlineOverlay.Visible = false;
+
+        var okBtn = new Button { Text = "确定", Top = 158, Left = 286, Width = 60, Height = 28 };
+        Theme.StyleButton(okBtn, primary: true);
+        okBtn.Click += (s, e) => CommitInlineDialog();
+
+        box.Controls.AddRange(new Control[] {
+            dialogTitle, nameLabel, _inlineNameBox,
+            pathLabel, _inlinePathBox, browseBtn,
+            cancelBtn, okBtn
+        });
+        _inlineOverlay.Controls.Add(box);
+
+        // Center the box
+        box.Location = new Point(
+            (Width - box.Width) / 2,
+            (Height - box.Height) / 2 - 20);
+
+        _inlineOverlay.Resize += (s, e) =>
+        {
+            box.Location = new Point(
+                (_inlineOverlay.Width - box.Width) / 2,
+                (_inlineOverlay.Height - box.Height) / 2 - 20);
+        };
+
+        Controls.Add(_inlineOverlay);
+        _inlineOverlay.BringToFront();
+    }
+
+    private void ShowInlineDialog(string title = "添加规则", string name = "", string path = "")
+    {
+        _inlineNameBox.Text = name;
+        _inlinePathBox.Text = path;
+        var titleLbl = (Label)_inlineOverlay.Controls[0].Controls["dlgTitle"]!;
+        titleLbl.Text = title;
+        _inlineOverlay.Visible = true;
+        _inlineOverlay.BringToFront();
+        _inlineNameBox.Focus();
+    }
+
+    private void CommitInlineDialog()
+    {
+        var name = _inlineNameBox.Text.Trim();
+        var path = _inlinePathBox.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            MessageBox.Show(this, "标签名不能为空", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            MessageBox.Show(this, "路径不能为空", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_editingRuleId != null)
+        {
+            var rule = _config.GetRuleById(_editingRuleId);
+            if (rule != null)
+            {
+                rule.Name = name;
+                rule.Path = path;
+                _config.UpdateRule(rule);
+            }
+            _editingRuleId = null;
+        }
+        else
+        {
+            _config.AddRule(new Rule { Name = name, Path = path });
+        }
+
+        LoadRules();
+        _inlineOverlay.Visible = false;
     }
 
     private void LoadRules()
@@ -70,108 +286,25 @@ public class RuleManagerForm : Form
         _grid.Rows.Clear();
         foreach (var rule in _config.Rules)
         {
-            _grid.Rows.Add(rule.Name, rule.Path);
-            _grid.Rows[^1].Tag = rule;
+            var rowIdx = _grid.Rows.Add(rule.Name, rule.Path);
+            _grid.Rows[rowIdx].Tag = rule;
         }
     }
 
-    private class RuleDialogResult
-    {
-        public string? Name { get; set; }
-        public string? Path { get; set; }
-    }
-
-    private static RuleDialogResult? ShowRuleDialog(string title, string initialName, string initialPath, IWin32Window owner)
-    {
-        RuleDialogResult? result = null;
-
-        var form = new Form
-        {
-            Text = title,
-            Size = new Size(450, 200),
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            StartPosition = FormStartPosition.CenterParent,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            ShowInTaskbar = false
-        };
-
-        var nameLabel = new Label { Text = "标签名:", Top = 20, Left = 15, Width = 60 };
-        var nameBox = new TextBox { Top = 18, Left = 80, Width = 335, Text = initialName };
-
-        var pathLabel = new Label { Text = "路径:", Top = 55, Left = 15, Width = 60 };
-        var pathBox = new TextBox { Top = 53, Left = 80, Width = 250, Text = initialPath };
-        var browseBtn = new Button { Text = "浏览...", Top = 52, Left = 335, Width = 80, Height = 25 };
-        browseBtn.Click += (s, e) =>
-        {
-            using var dlg = new FolderBrowserDialog { SelectedPath = pathBox.Text };
-            if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                pathBox.Text = dlg.SelectedPath;
-        };
-
-        var okBtn = new Button { Text = "确定", Top = 100, Left = 260, Width = 70, Height = 28 };
-        okBtn.Click += (s, e) =>
-        {
-            if (string.IsNullOrWhiteSpace(nameBox.Text))
-            {
-                MessageBox.Show(form, "标签名不能为空", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(pathBox.Text))
-            {
-                MessageBox.Show(form, "路径不能为空", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            result = new RuleDialogResult { Name = nameBox.Text.Trim(), Path = pathBox.Text.Trim() };
-            form.DialogResult = System.Windows.Forms.DialogResult.OK;
-        };
-
-        var cancelBtn = new Button { Text = "取消", Top = 100, Left = 340, Width = 70, Height = 28 };
-        cancelBtn.Click += (s, e) => form.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-
-        form.Controls.AddRange(new Control[] { nameLabel, nameBox, pathLabel, pathBox, browseBtn, okBtn, cancelBtn });
-        return form.ShowDialog(owner) == System.Windows.Forms.DialogResult.OK ? result : null;
-    }
-
-    private void AddButton_Click(object? sender, EventArgs e)
-    {
-        var result = ShowRuleDialog("添加规则", "", "", this);
-        if (result != null)
-        {
-            _config.AddRule(new Rule { Name = result.Name!, Path = result.Path! });
-            LoadRules();
-        }
-    }
-
-    private void EditButton_Click(object? sender, EventArgs e)
-    {
-        if (_grid.SelectedRows.Count == 0) return;
-        var rule = (Rule)_grid.SelectedRows[0].Tag!;
-
-        var result = ShowRuleDialog("编辑规则", rule.Name, rule.Path, this);
-        if (result != null)
-        {
-            rule.Name = result.Name!;
-            rule.Path = result.Path!;
-            _config.UpdateRule(rule);
-            LoadRules();
-        }
-    }
-
-    private void DeleteButton_Click(object? sender, EventArgs e)
+    private void DeleteRule()
     {
         if (_grid.SelectedRows.Count == 0) return;
         var rule = (Rule)_grid.SelectedRows[0].Tag!;
         var dr = MessageBox.Show($"确定删除标签「{rule.Name}」吗？", "确认删除",
             MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-        if (dr == System.Windows.Forms.DialogResult.Yes)
+        if (dr == DialogResult.Yes)
         {
             _config.RemoveRule(rule.Id);
             LoadRules();
         }
     }
 
-    private void ImportButton_Click(object? sender, EventArgs e)
+    private void ImportRules()
     {
         using var dlg = new OpenFileDialog
         {
@@ -179,7 +312,7 @@ public class RuleManagerForm : Form
             Filter = "JSON 文件|*.json",
             DefaultExt = "json"
         };
-        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+        if (dlg.ShowDialog() == DialogResult.OK)
         {
             try
             {
@@ -190,17 +323,19 @@ public class RuleManagerForm : Form
                     foreach (var rule in imported)
                         _config.AddRule(rule);
                     LoadRules();
-                    MessageBox.Show($"已导入 {imported.Count} 条规则", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show($"已导入 {imported.Count} 条规则", "完成",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"导入失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"导入失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
 
-    private void ExportButton_Click(object? sender, EventArgs e)
+    private void ExportRules()
     {
         using var dlg = new SaveFileDialog
         {
@@ -209,19 +344,36 @@ public class RuleManagerForm : Form
             DefaultExt = "json",
             FileName = "rules.json"
         };
-        if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+        if (dlg.ShowDialog() == DialogResult.OK)
         {
             try
             {
                 var json = JsonSerializer.Serialize(_config.Rules.ToList(),
                     new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(dlg.FileName, json);
-                MessageBox.Show($"已导出 {_config.Rules.Count} 条规则", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"已导出 {_config.Rules.Count} 条规则", "完成",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"导出失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"导出失败: {ex.Message}", "错误",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+    }
+
+    // Keyboard: close inline dialog with Escape
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.KeyCode == Keys.Escape)
+        {
+            if (_inlineOverlay.Visible)
+            {
+                _inlineOverlay.Visible = false;
+                _editingRuleId = null;
+            }
+            else Close();
         }
     }
 }

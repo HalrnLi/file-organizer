@@ -10,13 +10,17 @@ public class OrganizeDialog : Form
     private TextBox? _nameBox;
     private TextBox? _templateBox;
     private ListBox? _fileListBox;
-    private ComboBox _tagCombo;
-    private Button _moveButton;
+    private ComboBox _tagCombo = null!;
+    private Button _moveButton = null!;
     private ProgressBar? _progressBar;
     private Label? _progressLabel;
     private Panel? _customPathPanel;
     private TextBox? _customNameBox;
     private TextBox? _customPathBox;
+    private Panel _titleBar = null!;
+    private bool _titleDragging;
+    private Point _titleDragStart;
+    private Point _formStartPos;
 
     private class TagItem
     {
@@ -36,72 +40,163 @@ public class OrganizeDialog : Form
 
     private void InitializeComponent()
     {
-        Text = _isMultiFile ? $"整理 {_sourceFiles.Count} 个文件" : "整理文件";
-        Size = new Size(520, _isMultiFile ? 440 : 310);
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
+        var width = _isMultiFile ? 500 : 440;
+        var height = _isMultiFile ? 460 : 330;
+        var titleText = _isMultiFile ? $"整理 {_sourceFiles.Count} 个文件" : "整理文件";
+
+        Text = "";
+        Size = new Size(width, height);
+        FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterParent;
         ShowInTaskbar = false;
+        BackColor = Theme.Surface;
+        DoubleBuffered = true;
 
-        var y = 15;
+        // --- Custom titlebar ---
+        _titleBar = new Panel
+        {
+            Height = 36, Dock = DockStyle.Top,
+            BackColor = Color.FromArgb(40, 43, 50),
+            Cursor = Cursors.SizeAll
+        };
+        var titleLabel = new Label
+        {
+            Text = titleText, Left = 14, Top = 8,
+            Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+            ForeColor = Theme.Fg, BackColor = Color.Transparent,
+            AutoSize = true
+        };
+        var closeBtn = new Button
+        {
+            Text = "×", Size = new Size(28, 28),
+            Top = 4, Left = _titleBar.Width - 36,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 14f),
+            ForeColor = Theme.Muted,
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Cursor = Cursors.Hand,
+            TabStop = false
+        };
+        closeBtn.FlatAppearance.BorderSize = 0;
+        closeBtn.FlatAppearance.MouseOverBackColor = Theme.Danger;
+        closeBtn.Click += (s, e) => Close();
+        _titleBar.Controls.Add(titleLabel);
+        _titleBar.Controls.Add(closeBtn);
+
+        // Titlebar drag
+        _titleBar.MouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                _titleDragging = true;
+                _titleDragStart = e.Location;
+                _formStartPos = Location;
+            }
+        };
+        _titleBar.MouseMove += (s, e) =>
+        {
+            if (!_titleDragging) return;
+            Location = new Point(
+                _formStartPos.X + e.X - _titleDragStart.X,
+                _formStartPos.Y + e.Y - _titleDragStart.Y);
+        };
+        _titleBar.MouseUp += (s, e) => _titleDragging = false;
+
+        Controls.Add(_titleBar);
+
+        // --- Body ---
+        var body = new Panel
+        {
+            Top = 36, Left = 0,
+            Width = width, Height = height - 36,
+            Padding = new Padding(16, 12, 16, 12),
+            BackColor = Theme.Surface
+        };
+        var y = 8;
 
         if (_isMultiFile)
         {
+            // File list label
             var fileLabel = new Label
             {
-                Text = $"已选择 {_sourceFiles.Count} 个文件:",
-                Top = y, Left = 15, Width = 480
+                Text = "文件列表",
+                Top = y, Left = 0, AutoSize = true
             };
-            Controls.Add(fileLabel);
-            y += 22;
-
-            _fileListBox = new ListBox
-            {
-                Top = y, Left = 15, Width = 480, Height = 100,
-                SelectionMode = SelectionMode.None
-            };
-            foreach (var f in _sourceFiles)
-                _fileListBox.Items.Add(Path.GetFileName(f));
-            Controls.Add(_fileListBox);
-            y += 108;
-
-            var templateLabel = new Label
-            {
-                Text = "重命名模板 (留空保持原名, {n}=序号, {name}=原名):",
-                Top = y, Left = 15, Width = 480
-            };
-            Controls.Add(templateLabel);
+            Theme.StyleLabel(fileLabel, muted: true);
+            body.Controls.Add(fileLabel);
             y += 20;
 
-            _templateBox = new TextBox { Top = y, Left = 15, Width = 480, Text = "" };
-            Controls.Add(_templateBox);
-            y += 30;
+            // File list box
+            _fileListBox = new ListBox
+            {
+                Top = y, Left = 0,
+                Width = body.Width - 32, Height = 100,
+                SelectionMode = SelectionMode.None
+            };
+            Theme.StyleListBox(_fileListBox);
+            foreach (var f in _sourceFiles)
+                _fileListBox.Items.Add(Path.GetFileName(f));
+            body.Controls.Add(_fileListBox);
+            y += 108;
+
+            // Rename template
+            var templateLabel = new Label
+            {
+                Text = "重命名模板",
+                Top = y, Left = 0, AutoSize = true
+            };
+            Theme.StyleLabel(templateLabel, muted: true);
+            body.Controls.Add(templateLabel);
+            y += 20;
+
+            _templateBox = new TextBox
+            {
+                Top = y, Left = 0, Width = body.Width - 32,
+                PlaceholderText = "留空保持原名  {n}=序号  {name}=原名  {ext}=扩展名"
+            };
+            Theme.StyleTextBox(_templateBox, mono: true);
+            body.Controls.Add(_templateBox);
+            y += 34;
         }
         else
         {
-            var fileLabel = new Label { Text = "文件:", Top = y, Left = 15, Width = 50 };
-            Controls.Add(fileLabel);
+            // File name field
+            var fileLabel = new Label
+            {
+                Text = "文件",
+                Top = y, Left = 0, AutoSize = true
+            };
+            Theme.StyleLabel(fileLabel, muted: true);
+            body.Controls.Add(fileLabel);
+            y += 20;
 
             _nameBox = new TextBox
             {
-                Top = y - 2, Left = 65, Width = 430,
-                Text = Path.GetFileName(_sourceFiles[0])
+                Top = y, Left = 0, Width = body.Width - 32,
+                Text = _sourceFiles.Count > 0 ? Path.GetFileName(_sourceFiles[0]) : ""
             };
-            Controls.Add(_nameBox);
-            y += 30;
+            Theme.StyleTextBox(_nameBox, mono: true);
+            body.Controls.Add(_nameBox);
+            y += 34;
         }
 
         // --- Tag dropdown ---
-        var tagLabel = new Label { Text = "目标标签:", Top = y, Left = 15, Width = 80 };
-        Controls.Add(tagLabel);
-        y += 22;
+        var tagLabel = new Label
+        {
+            Text = "目标标签",
+            Top = y, Left = 0, AutoSize = true
+        };
+        Theme.StyleLabel(tagLabel, muted: true);
+        body.Controls.Add(tagLabel);
+        y += 20;
 
         _tagCombo = new ComboBox
         {
-            Top = y, Left = 15, Width = 480,
+            Top = y, Left = 0, Width = body.Width - 32,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
+        Theme.StyleComboBox(_tagCombo);
         _tagCombo.SelectedIndexChanged += (s, e) =>
         {
             if (_tagCombo.SelectedItem is TagItem item)
@@ -123,37 +218,39 @@ public class OrganizeDialog : Form
             }
         };
         LoadTags();
-        Controls.Add(_tagCombo);
-        y += 30;
+        body.Controls.Add(_tagCombo);
+        y += 34;
 
         // --- Custom path panel (hidden until "新增路径" is selected) ---
         _customPathPanel = new Panel
         {
-            Top = y, Left = 15, Width = 480, Height = 58,
+            Top = y, Left = 0, Width = body.Width - 32, Height = 70,
             Visible = false
         };
 
-        var cpNameLabel = new Label { Text = "标签名:", Top = 5, Left = 0, Width = 60 };
-        _customNameBox = new TextBox { Top = 2, Left = 65, Width = 410 };
+        var cpNameLabel = new Label { Text = "标签名", Top = 0, Left = 0, AutoSize = true };
+        Theme.StyleLabel(cpNameLabel, muted: true);
+        _customNameBox = new TextBox { Top = 18, Left = 0, Width = _customPathPanel.Width };
+        Theme.StyleTextBox(_customNameBox);
         _customNameBox.TextChanged += OnCustomFieldChanged;
 
-        var cpPathLabel = new Label { Text = "路径:", Top = 33, Left = 0, Width = 60 };
-        _customPathBox = new TextBox { Top = 30, Left = 65, Width = 285 };
+        var cpPathLabel = new Label { Text = "路径", Top = 46, Left = 0, AutoSize = true };
+        Theme.StyleLabel(cpPathLabel, muted: true);
+        _customPathBox = new TextBox { Top = 64, Left = 0, Width = _customPathPanel.Width - 140 };
+        Theme.StyleTextBox(_customPathBox, mono: true);
         _customPathBox.TextChanged += OnCustomFieldChanged;
 
-        var browseBtn = new Button { Text = "浏览...", Top = 29, Left = 355, Width = 60, Height = 25 };
+        var browseBtn = new Button { Text = "浏览...", Top = 63, Left = _customPathBox.Width + 8, Width = 60, Height = 25 };
+        Theme.StyleButton(browseBtn);
         browseBtn.Click += (s, e) =>
         {
-            using var dlg = new FolderBrowserDialog
-            {
-                SelectedPath = _customPathBox!.Text,
-                ShowNewFolderButton = true
-            };
+            using var dlg = new FolderBrowserDialog { SelectedPath = _customPathBox!.Text, ShowNewFolderButton = true };
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 _customPathBox.Text = dlg.SelectedPath;
         };
 
-        var newFolderBtn = new Button { Text = "新建", Top = 29, Left = 420, Width = 55, Height = 25 };
+        var newFolderBtn = new Button { Text = "新建", Top = 63, Left = _customPathBox.Width + 74, Width = 55, Height = 25 };
+        Theme.StyleButton(newFolderBtn);
         newFolderBtn.Click += (s, e) =>
         {
             var basePath = _customPathBox!.Text.Trim();
@@ -166,9 +263,7 @@ public class OrganizeDialog : Form
                 Size = new Size(320, 130),
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 StartPosition = FormStartPosition.CenterParent,
-                MinimizeBox = false,
-                MaximizeBox = false,
-                ShowInTaskbar = false
+                MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false
             };
             var inputBox = new TextBox { Top = 15, Left = 15, Width = 270, Text = "新建文件夹" };
             var okBtn = new Button { Text = "确定", Top = 50, Left = 130, Width = 70 };
@@ -197,48 +292,67 @@ public class OrganizeDialog : Form
             cpNameLabel, _customNameBox,
             cpPathLabel, _customPathBox, browseBtn, newFolderBtn
         });
-        Controls.Add(_customPathPanel);
-        y += 62;
+        body.Controls.Add(_customPathPanel);
+        y += 78;
 
-        // --- Progress bar (hidden initially) ---
-        _progressBar = new ProgressBar
+        // --- Progress area (multi-file only) ---
+        if (_isMultiFile)
         {
-            Top = y, Left = 15, Width = 380, Height = 20,
-            Visible = false
-        };
-        Controls.Add(_progressBar);
+            _progressBar = new ProgressBar
+            {
+                Top = y, Left = 0, Width = body.Width - 120, Height = 6
+            };
+            Theme.StyleProgressBar(_progressBar);
+            _progressBar.Visible = false;
+            body.Controls.Add(_progressBar);
 
-        _progressLabel = new Label
-        {
-            Top = y, Left = 400, Width = 100, Height = 20,
-            TextAlign = ContentAlignment.MiddleLeft,
-            Visible = false
-        };
-        Controls.Add(_progressLabel);
-        y += 28;
+            _progressLabel = new Label
+            {
+                Top = y - 2, Left = body.Width - 110, Width = 78, Height = 14,
+                TextAlign = ContentAlignment.MiddleRight
+            };
+            Theme.StyleLabel(_progressLabel, muted: true, mono: true);
+            _progressLabel.Visible = false;
+            body.Controls.Add(_progressLabel);
+            y += 18;
+        }
 
         // --- Buttons ---
+        y += 6;
         _moveButton = new Button
         {
-            Text = "移动",
-            Top = y, Left = 340, Width = 75, Height = 30,
+            Text = _isMultiFile ? "移动全部" : "移动",
+            Top = y, Left = body.Width - 175, Width = 80, Height = 30,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
             Enabled = false
         };
+        Theme.StyleButton(_moveButton, primary: true);
         _moveButton.Click += MoveButton_Click;
-        Controls.Add(_moveButton);
+        body.Controls.Add(_moveButton);
 
         var cancelButton = new Button
         {
             Text = "取消",
-            Top = y, Left = 420, Width = 75, Height = 30
+            Top = y, Left = body.Width - 87, Width = 70, Height = 30,
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
+        Theme.StyleButton(cancelButton);
         cancelButton.Click += (s, e) => Close();
-        Controls.Add(cancelButton);
+        body.Controls.Add(cancelButton);
 
+        Controls.Add(body);
+
+        // Accept button + initial state
         AcceptButton = _moveButton;
-
-        if (_tagCombo.SelectedIndex >= 0 && _tagCombo.SelectedItem is TagItem item && item.Rule != null)
+        if (_tagCombo.SelectedIndex >= 0 && _tagCombo.SelectedItem is TagItem tag && tag.Rule != null)
             _moveButton.Enabled = true;
+
+        // Paint border
+        Paint += (s, e) =>
+        {
+            using var pen = new Pen(Theme.Border, 1);
+            e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+        };
     }
 
     private void OnCustomFieldChanged(object? sender, EventArgs e)
@@ -258,13 +372,11 @@ public class OrganizeDialog : Form
         {
             var rule = _config.Rules[i];
             _tagCombo.Items.Add(new TagItem($"{rule.Name}  →  {rule.Path}", rule));
-            if (rule.Id == lastId)
-                selectIndex = i;
+            if (rule.Id == lastId) selectIndex = i;
         }
         _tagCombo.Items.Add(new TagItem("📁 新增路径...", null));
 
-        if (selectIndex >= 0)
-            _tagCombo.SelectedIndex = selectIndex;
+        if (selectIndex >= 0) _tagCombo.SelectedIndex = selectIndex;
     }
 
     private void MoveButton_Click(object? sender, EventArgs e)
@@ -357,12 +469,9 @@ public class OrganizeDialog : Form
                     MessageBoxButtons.YesNoCancel,
                     MessageBoxIcon.Question);
 
-                if (dr == DialogResult.Yes)
-                    conflictAction = ConflictAction.Overwrite;
-                else if (dr == DialogResult.No)
-                    conflictAction = ConflictAction.AutoRename;
-                else
-                    return;
+                if (dr == DialogResult.Yes) conflictAction = ConflictAction.Overwrite;
+                else if (dr == DialogResult.No) conflictAction = ConflictAction.AutoRename;
+                else return;
             }
             else
             {
