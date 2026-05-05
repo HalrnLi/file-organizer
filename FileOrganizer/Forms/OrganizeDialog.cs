@@ -38,16 +38,26 @@ public class OrganizeDialog : Form
         InitializeComponent();
     }
 
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
+    }
+
     private void InitializeComponent()
     {
-        var width = _isMultiFile ? 500 : 440;
-        var height = _isMultiFile ? 460 : 330;
+        var width = _isMultiFile ? 600 : 540;
+        var height = _isMultiFile ? 560 : 450;
         var titleText = _isMultiFile ? $"整理 {_sourceFiles.Count} 个文件" : "整理文件";
 
         Text = "";
         Size = new Size(width, height);
         FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.CenterScreen;
         ShowInTaskbar = false;
         BackColor = Theme.Surface;
         DoubleBuffered = true;
@@ -90,16 +100,17 @@ public class OrganizeDialog : Form
             if (e.Button == MouseButtons.Left)
             {
                 _titleDragging = true;
-                _titleDragStart = e.Location;
+                _titleDragStart = Cursor.Position;
                 _formStartPos = Location;
             }
         };
         _titleBar.MouseMove += (s, e) =>
         {
             if (!_titleDragging) return;
+            var screenPos = Cursor.Position;
             Location = new Point(
-                _formStartPos.X + e.X - _titleDragStart.X,
-                _formStartPos.Y + e.Y - _titleDragStart.Y);
+                _formStartPos.X + screenPos.X - _titleDragStart.X,
+                _formStartPos.Y + screenPos.Y - _titleDragStart.Y);
         };
         _titleBar.MouseUp += (s, e) => _titleDragging = false;
 
@@ -110,8 +121,17 @@ public class OrganizeDialog : Form
         {
             Top = 36, Left = 0,
             Width = width, Height = height - 36,
-            Padding = new Padding(16, 12, 16, 12),
+            Padding = new Padding(24, 16, 24, 16),
             BackColor = Theme.Surface
+        };
+        var contentWidth = _isMultiFile ? 500 : 440;
+        var content = new Panel
+        {
+            Width = contentWidth,
+            Height = body.Height - 20,
+            Left = (body.Width - contentWidth) / 2,
+            Top = 8,
+            BackColor = Color.Transparent
         };
         var y = 8;
 
@@ -124,20 +144,20 @@ public class OrganizeDialog : Form
                 Top = y, Left = 0, AutoSize = true
             };
             Theme.StyleLabel(fileLabel, muted: true);
-            body.Controls.Add(fileLabel);
+            content.Controls.Add(fileLabel);
             y += 20;
 
             // File list box
             _fileListBox = new ListBox
             {
                 Top = y, Left = 0,
-                Width = body.Width - 32, Height = 100,
+                Width = content.Width, Height = 100,
                 SelectionMode = SelectionMode.None
             };
             Theme.StyleListBox(_fileListBox);
             foreach (var f in _sourceFiles)
                 _fileListBox.Items.Add(Path.GetFileName(f));
-            body.Controls.Add(_fileListBox);
+            content.Controls.Add(_fileListBox);
             y += 108;
 
             // Rename template
@@ -147,16 +167,16 @@ public class OrganizeDialog : Form
                 Top = y, Left = 0, AutoSize = true
             };
             Theme.StyleLabel(templateLabel, muted: true);
-            body.Controls.Add(templateLabel);
+            content.Controls.Add(templateLabel);
             y += 20;
 
             _templateBox = new TextBox
             {
-                Top = y, Left = 0, Width = body.Width - 32,
+                Top = y, Left = 0, Width = content.Width,
                 PlaceholderText = "留空保持原名  {n}=序号  {name}=原名  {ext}=扩展名"
             };
             Theme.StyleTextBox(_templateBox, mono: true);
-            body.Controls.Add(_templateBox);
+            content.Controls.Add(_templateBox);
             y += 34;
         }
         else
@@ -168,16 +188,16 @@ public class OrganizeDialog : Form
                 Top = y, Left = 0, AutoSize = true
             };
             Theme.StyleLabel(fileLabel, muted: true);
-            body.Controls.Add(fileLabel);
+            content.Controls.Add(fileLabel);
             y += 20;
 
             _nameBox = new TextBox
             {
-                Top = y, Left = 0, Width = body.Width - 32,
+                Top = y, Left = 0, Width = content.Width,
                 Text = _sourceFiles.Count > 0 ? Path.GetFileName(_sourceFiles[0]) : ""
             };
             Theme.StyleTextBox(_nameBox, mono: true);
-            body.Controls.Add(_nameBox);
+            content.Controls.Add(_nameBox);
             y += 34;
         }
 
@@ -188,12 +208,12 @@ public class OrganizeDialog : Form
             Top = y, Left = 0, AutoSize = true
         };
         Theme.StyleLabel(tagLabel, muted: true);
-        body.Controls.Add(tagLabel);
+        content.Controls.Add(tagLabel);
         y += 20;
 
         _tagCombo = new ComboBox
         {
-            Top = y, Left = 0, Width = body.Width - 32,
+            Top = y, Left = 0, Width = content.Width,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         Theme.StyleComboBox(_tagCombo);
@@ -218,29 +238,29 @@ public class OrganizeDialog : Form
             }
         };
         LoadTags();
-        body.Controls.Add(_tagCombo);
+        content.Controls.Add(_tagCombo);
         y += 34;
 
         // --- Custom path panel (hidden until "新增路径" is selected) ---
         _customPathPanel = new Panel
         {
-            Top = y, Left = 0, Width = body.Width - 32, Height = 70,
+            Top = y, Left = 0, Width = content.Width, Height = 120,
             Visible = false
         };
 
         var cpNameLabel = new Label { Text = "标签名", Top = 0, Left = 0, AutoSize = true };
         Theme.StyleLabel(cpNameLabel, muted: true);
-        _customNameBox = new TextBox { Top = 18, Left = 0, Width = _customPathPanel.Width };
+        _customNameBox = new TextBox { Top = 20, Left = 0, Width = _customPathPanel.Width };
         Theme.StyleTextBox(_customNameBox);
         _customNameBox.TextChanged += OnCustomFieldChanged;
 
-        var cpPathLabel = new Label { Text = "路径", Top = 46, Left = 0, AutoSize = true };
+        var cpPathLabel = new Label { Text = "路径", Top = 50, Left = 0, AutoSize = true };
         Theme.StyleLabel(cpPathLabel, muted: true);
-        _customPathBox = new TextBox { Top = 64, Left = 0, Width = _customPathPanel.Width - 140 };
+        _customPathBox = new TextBox { Top = 68, Left = 0, Width = _customPathPanel.Width - 140 };
         Theme.StyleTextBox(_customPathBox, mono: true);
         _customPathBox.TextChanged += OnCustomFieldChanged;
 
-        var browseBtn = new Button { Text = "浏览...", Top = 63, Left = _customPathBox.Width + 8, Width = 60, Height = 25 };
+        var browseBtn = new Button { Text = "浏览...", Top = 67, Left = _customPathBox.Width + 8, Width = 60, Height = 25 };
         Theme.StyleButton(browseBtn);
         browseBtn.Click += (s, e) =>
         {
@@ -249,7 +269,7 @@ public class OrganizeDialog : Form
                 _customPathBox.Text = dlg.SelectedPath;
         };
 
-        var newFolderBtn = new Button { Text = "新建", Top = 63, Left = _customPathBox.Width + 74, Width = 55, Height = 25 };
+        var newFolderBtn = new Button { Text = "新建", Top = 67, Left = _customPathBox.Width + 74, Width = 55, Height = 25 };
         Theme.StyleButton(newFolderBtn);
         newFolderBtn.Click += (s, e) =>
         {
@@ -292,54 +312,55 @@ public class OrganizeDialog : Form
             cpNameLabel, _customNameBox,
             cpPathLabel, _customPathBox, browseBtn, newFolderBtn
         });
-        body.Controls.Add(_customPathPanel);
-        y += 78;
+        content.Controls.Add(_customPathPanel);
+        y += 128;
 
         // --- Progress area (multi-file only) ---
         if (_isMultiFile)
         {
             _progressBar = new ProgressBar
             {
-                Top = y, Left = 0, Width = body.Width - 120, Height = 6
+                Top = y, Left = 0, Width = content.Width - 92, Height = 6
             };
             Theme.StyleProgressBar(_progressBar);
             _progressBar.Visible = false;
-            body.Controls.Add(_progressBar);
+            content.Controls.Add(_progressBar);
 
             _progressLabel = new Label
             {
-                Top = y - 2, Left = body.Width - 110, Width = 78, Height = 14,
+                Top = y - 2, Left = content.Width - 82, Width = 78, Height = 14,
                 TextAlign = ContentAlignment.MiddleRight
             };
             Theme.StyleLabel(_progressLabel, muted: true, mono: true);
             _progressLabel.Visible = false;
-            body.Controls.Add(_progressLabel);
+            content.Controls.Add(_progressLabel);
             y += 18;
         }
 
-        // --- Buttons ---
-        y += 6;
+        // --- Buttons (fixed to bottom) ---
+        var btnTop = content.Height - 46;
         _moveButton = new Button
         {
             Text = _isMultiFile ? "移动全部" : "移动",
-            Top = y, Left = body.Width - 175, Width = 80, Height = 30,
+            Top = btnTop, Left = content.Width - 158, Width = 80, Height = 30,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
             Enabled = false
         };
         Theme.StyleButton(_moveButton, primary: true);
         _moveButton.Click += MoveButton_Click;
-        body.Controls.Add(_moveButton);
+        content.Controls.Add(_moveButton);
 
         var cancelButton = new Button
         {
             Text = "取消",
-            Top = y, Left = body.Width - 87, Width = 70, Height = 30,
+            Top = btnTop, Left = content.Width - 70, Width = 70, Height = 30,
             Anchor = AnchorStyles.Bottom | AnchorStyles.Right
         };
         Theme.StyleButton(cancelButton);
         cancelButton.Click += (s, e) => Close();
-        body.Controls.Add(cancelButton);
+        content.Controls.Add(cancelButton);
 
+        body.Controls.Add(content);
         Controls.Add(body);
 
         // Accept button + initial state
@@ -376,10 +397,18 @@ public class OrganizeDialog : Form
         }
         _tagCombo.Items.Add(new TagItem("📁 新增路径...", null));
 
-        if (selectIndex >= 0) _tagCombo.SelectedIndex = selectIndex;
+        if (selectIndex >= 0)
+        {
+            _tagCombo.SelectedIndex = selectIndex;
+        }
+        else if (_config.Rules.Count > 0)
+        {
+            // Default to the first existing rule so the primary action is available immediately.
+            _tagCombo.SelectedIndex = 0;
+        }
     }
 
-    private void MoveButton_Click(object? sender, EventArgs e)
+    private async void MoveButton_Click(object? sender, EventArgs e)
     {
         if (_tagCombo.SelectedItem is not TagItem item) return;
 
@@ -435,13 +464,21 @@ public class OrganizeDialog : Form
             _ => ConflictAction.Prompt
         };
 
-        if (_isMultiFile)
-            MoveAllFiles(mover, rule, conflictAction);
-        else
-            MoveSingleFile(mover, rule, conflictAction);
+        SetMovingState(true);
+        try
+        {
+            if (_isMultiFile)
+                await MoveAllFilesAsync(mover, rule, conflictAction);
+            else
+                await MoveSingleFileAsync(mover, rule, conflictAction);
+        }
+        finally
+        {
+            SetMovingState(false);
+        }
     }
 
-    private void MoveSingleFile(FileMover mover, Rule rule, ConflictAction conflictAction)
+    private async Task MoveSingleFileAsync(FileMover mover, Rule rule, ConflictAction conflictAction)
     {
         var fileName = _nameBox!.Text.Trim();
         if (string.IsNullOrWhiteSpace(fileName))
@@ -452,7 +489,7 @@ public class OrganizeDialog : Form
 
         while (true)
         {
-            var result = mover.MoveFile(_sourceFiles[0], rule.Path, fileName, conflictAction);
+            var result = await Task.Run(() => mover.MoveFile(_sourceFiles[0], rule.Path, fileName, conflictAction));
 
             if (result.Success)
             {
@@ -482,9 +519,8 @@ public class OrganizeDialog : Form
         }
     }
 
-    private void MoveAllFiles(FileMover mover, Rule rule, ConflictAction conflictAction)
+    private async Task MoveAllFilesAsync(FileMover mover, Rule rule, ConflictAction conflictAction)
     {
-        _moveButton.Enabled = false;
         _progressBar!.Visible = true;
         _progressLabel!.Visible = true;
         _progressBar.Maximum = _sourceFiles.Count;
@@ -509,7 +545,7 @@ public class OrganizeDialog : Form
                     .Replace("{ext}", ext);
             }
 
-            var result = mover.MoveFile(file, rule.Path, fileName, conflictAction);
+            var result = await Task.Run(() => mover.MoveFile(file, rule.Path, fileName, conflictAction));
             if (result.Success)
             {
                 success++;
@@ -518,7 +554,7 @@ public class OrganizeDialog : Form
             }
             else if (result.ErrorMessage == "CONFLICT_PROMPT")
             {
-                var autoResult = mover.MoveFile(file, rule.Path, fileName, ConflictAction.AutoRename);
+                var autoResult = await Task.Run(() => mover.MoveFile(file, rule.Path, fileName, ConflictAction.AutoRename));
                 if (autoResult.Success)
                 {
                     success++;
@@ -539,7 +575,7 @@ public class OrganizeDialog : Form
 
             _progressBar.Value = i + 1;
             _progressLabel.Text = $"{i + 1}/{_sourceFiles.Count}";
-            Application.DoEvents();
+            await Task.Yield();
         }
 
         if (fail > 0)
@@ -552,5 +588,17 @@ public class OrganizeDialog : Form
         }
 
         Close();
+    }
+
+    private void SetMovingState(bool moving)
+    {
+        if (IsDisposed) return;
+        _moveButton.Enabled = !moving;
+        _tagCombo.Enabled = !moving;
+        if (_nameBox != null) _nameBox.Enabled = !moving;
+        if (_templateBox != null) _templateBox.Enabled = !moving;
+        if (_customNameBox != null) _customNameBox.Enabled = !moving;
+        if (_customPathBox != null) _customPathBox.Enabled = !moving;
+        UseWaitCursor = moving;
     }
 }

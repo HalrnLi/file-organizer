@@ -10,10 +10,10 @@ public class FloatingWindow : Form
     private readonly ConfigManager _config;
     private NotifyIcon _trayIcon = null!;
     private const int WindowSize = 88;
-    private Point _dragStart;
     private bool _isDragging;
     private bool _isDragOver;
-    private Label _iconLabel = null!;
+    private Point _dragScreenStart;
+    private Point _dragFormStart;
     private Label _textLabel = null!;
     private Panel _contentPanel = null!;
 
@@ -78,6 +78,7 @@ public class FloatingWindow : Form
         ShowInTaskbar = false;
         AllowDrop = true;
         BackColor = Color.FromArgb(35, 38, 47);
+        Opacity = 0.85;
         StartPosition = FormStartPosition.Manual;
         DoubleBuffered = true;
 
@@ -88,7 +89,7 @@ public class FloatingWindow : Form
         // Apply rounded region
         UpdateRegion();
 
-        // Content panel (centers icon + label)
+        // Content panel (covers entire window)
         _contentPanel = new Panel
         {
             Size = new Size(WindowSize, WindowSize),
@@ -98,71 +99,37 @@ public class FloatingWindow : Form
             Cursor = Cursors.Hand
         };
 
-        // Folder icon (Unicode: folder + down arrow)
-        _iconLabel = new Label
-        {
-            Text = "\U0001F4C2",   // 📂 open folder
-            Font = new Font("Segoe UI", 26, FontStyle.Regular),
-            ForeColor = Color.FromArgb(190, 195, 200),
-            TextAlign = ContentAlignment.MiddleCenter,
-            Size = new Size(WindowSize, 44),
-            Location = new Point(0, 8),
-            BackColor = Color.Transparent,
-            AllowDrop = true,
-            Cursor = Cursors.Hand
-        };
-
+        // Text label (centered in panel)
         _textLabel = new Label
         {
             Text = "DROP",
-            Font = Theme.UiFontMonoSmall,
+            Font = new Font("Segoe UI", 16, FontStyle.Bold),
             ForeColor = Theme.Muted,
             TextAlign = ContentAlignment.MiddleCenter,
-            Size = new Size(WindowSize, 22),
-            Location = new Point(0, 52),
+            Size = new Size(WindowSize, WindowSize),
+            Location = Point.Empty,
             BackColor = Color.Transparent,
             AllowDrop = true,
             Cursor = Cursors.Hand
         };
 
-        _contentPanel.Controls.Add(_iconLabel);
         _contentPanel.Controls.Add(_textLabel);
         Controls.Add(_contentPanel);
 
-        // Drag-drop events → contentPanel and form
+        // Drag-drop events → whole window
         _contentPanel.DragEnter += OnDragEnter;
         _contentPanel.DragLeave += OnDragLeave;
         _contentPanel.DragDrop += OnDragDrop;
+        _textLabel.DragEnter += OnDragEnter;
+        _textLabel.DragLeave += OnDragLeave;
+        _textLabel.DragDrop += OnDragDrop;
         DragEnter += OnDragEnter;
         DragLeave += OnDragLeave;
         DragDrop += OnDragDrop;
 
-        // Drag-move on contentPanel
-        _contentPanel.MouseDown += (s, e) =>
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                _isDragging = true;
-                _dragStart = e.Location;
-            }
-        };
-        _contentPanel.MouseMove += (s, e) =>
-        {
-            if (!_isDragging) return;
-            Left += e.X - _dragStart.X;
-            Top += e.Y - _dragStart.Y;
-        };
-        _contentPanel.MouseUp += (s, e) =>
-        {
-            if (!_isDragging) return;
-            _isDragging = false;
-            var screen = Screen.FromPoint(Location).WorkingArea;
-            Left = Math.Clamp(Left, 0, screen.Width - Width);
-            Top = Math.Clamp(Top, 0, screen.Height - Height);
-            _config.Settings.FloatingWindowX = Left;
-            _config.Settings.FloatingWindowY = Top;
-            Task.Run(() => _config.SaveSettings());
-        };
+        // Drag-move: attach to contentPanel and textLabel
+        SetupDragEvents(_contentPanel);
+        SetupDragEvents(_textLabel);
 
         // Double-click: flash drag-over effect
         _contentPanel.DoubleClick += (s, e) => FlashDragOver();
@@ -246,13 +213,11 @@ public class FloatingWindow : Form
         if (on)
         {
             BackColor = Color.FromArgb(45, 60, 50);
-            _iconLabel.ForeColor = Color.FromArgb(220, 240, 220);
             _textLabel.ForeColor = Theme.Accent;
         }
         else
         {
             BackColor = Color.FromArgb(35, 38, 47);
-            _iconLabel.ForeColor = Color.FromArgb(190, 195, 200);
             _textLabel.ForeColor = Theme.Muted;
         }
         Invalidate();
@@ -290,6 +255,38 @@ public class FloatingWindow : Form
         using var path = RoundedRectPath(
             new Rectangle(1, 1, ClientSize.Width - 2, ClientSize.Height - 2), 15);
         g.DrawPath(pen, path);
+    }
+
+    private void SetupDragEvents(Control ctrl)
+    {
+        ctrl.MouseDown += (s, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                _isDragging = true;
+                _dragScreenStart = Cursor.Position;
+                _dragFormStart = Location;
+            }
+        };
+        ctrl.MouseMove += (s, e) =>
+        {
+            if (!_isDragging) return;
+            var screenPos = Cursor.Position;
+            Location = new Point(
+                _dragFormStart.X + screenPos.X - _dragScreenStart.X,
+                _dragFormStart.Y + screenPos.Y - _dragScreenStart.Y);
+        };
+        ctrl.MouseUp += (s, e) =>
+        {
+            if (!_isDragging) return;
+            _isDragging = false;
+            var screen = Screen.FromPoint(Location).WorkingArea;
+            Left = Math.Clamp(Left, screen.Left, screen.Right - Width);
+            Top = Math.Clamp(Top, screen.Top, screen.Bottom - Height);
+            _config.Settings.FloatingWindowX = Left;
+            _config.Settings.FloatingWindowY = Top;
+            Task.Run(() => _config.SaveSettings());
+        };
     }
 
     protected override void Dispose(bool disposing)

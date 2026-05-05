@@ -100,11 +100,11 @@ public static class Theme
     public static void StyleCheckBox(CheckBox cb)
     {
         cb.ForeColor = Fg;
-        cb.BackColor = Color.Transparent;
+        cb.BackColor = Surface;
         cb.Font = UiFont;
-        cb.FlatStyle = FlatStyle.Flat;
-        cb.FlatAppearance.BorderSize = 0;
-        cb.FlatAppearance.CheckedBackColor = Accent;
+        cb.UseVisualStyleBackColor = false;
+        cb.FlatStyle = FlatStyle.Standard;
+        cb.Padding = new Padding(2, 0, 0, 0);
     }
 
     /// <summary>Style a ListBox for dark theme.</summary>

@@ -34,7 +34,7 @@ public class RuleManagerForm : Form
     {
         Text = "";
         Size = new Size(640, 450);
-        StartPosition = FormStartPosition.CenterParent;
+        StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         BackColor = Theme.Surface;
@@ -56,11 +56,11 @@ public class RuleManagerForm : Form
         };
         var closeBtn = new Button
         {
-            Text = "×", Size = new Size(28, 28),
-            Top = 4, Left = Width - 36,
+            Text = "×", Size = new Size(32, 28),
+            Top = 4,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 14f),
-            ForeColor = Theme.Muted, BackColor = Color.Transparent,
+            ForeColor = Theme.Fg, BackColor = Color.FromArgb(60, 63, 70),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Cursor = Cursors.Hand, TabStop = false
         };
@@ -69,34 +69,44 @@ public class RuleManagerForm : Form
         closeBtn.Click += (s, e) => Close();
         titleBar.Controls.Add(titleLabel);
         titleBar.Controls.Add(closeBtn);
+        void LayoutTitleButtons()
+        {
+            closeBtn.Left = titleBar.ClientSize.Width - closeBtn.Width - 8;
+        }
+        Shown += (s, e) => BeginInvoke(LayoutTitleButtons);
+        titleBar.Resize += (s, e) => LayoutTitleButtons();
         titleBar.MouseDown += (s, e) =>
         {
             if (e.Button == MouseButtons.Left)
             {
                 _titleDragging = true;
-                _titleDragStart = e.Location;
+                _titleDragStart = Cursor.Position;
                 _formStartPos = Location;
             }
         };
         titleBar.MouseMove += (s, e) =>
         {
             if (!_titleDragging) return;
+            var screenPos = Cursor.Position;
             Location = new Point(
-                _formStartPos.X + e.X - _titleDragStart.X,
-                _formStartPos.Y + e.Y - _titleDragStart.Y);
+                _formStartPos.X + screenPos.X - _titleDragStart.X,
+                _formStartPos.Y + screenPos.Y - _titleDragStart.Y);
         };
         titleBar.MouseUp += (s, e) => _titleDragging = false;
         Controls.Add(titleBar);
 
         // --- Table ---
+        var contentLeft = 40;
+        var contentWidth = 560;
+
         _grid = new DataGridView
         {
-            Top = 44, Left = 12, Width = 600, Height = 300,
+            Top = 44, Left = contentLeft, Width = contentWidth, Height = 300,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
             ReadOnly = true,
             MultiSelect = false,
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
         };
         _grid.Columns.Add("Name", "标签名");
         _grid.Columns.Add("Path", "目标路径");
@@ -107,11 +117,16 @@ public class RuleManagerForm : Form
 
         // --- Buttons ---
         var btnY = 358;
-        _addButton = CreateToolButton("添加", 12, btnY);
-        _editButton = CreateToolButton("编辑", 98, btnY);
-        _deleteButton = CreateToolButton("删除", 184, btnY, danger: true);
-        _importButton = CreateToolButton("导入", 310, btnY);
-        _exportButton = CreateToolButton("导出", 396, btnY);
+        var gap = 10;
+        var totalButtonWidth = 75 * 5 + gap * 4;
+        var startX = (Width - totalButtonWidth) / 2;
+        _addButton = CreateToolButton("添加", startX, btnY);
+        _editButton = CreateToolButton("编辑", startX + 75 + gap, btnY);
+        _deleteButton = CreateToolButton("删除", startX + (75 + gap) * 2, btnY, danger: true);
+        _importButton = CreateToolButton("导入", startX + (75 + gap) * 3, btnY);
+        _exportButton = CreateToolButton("导出", startX + (75 + gap) * 4, btnY);
+        foreach (var button in new[] { _addButton, _editButton, _deleteButton, _importButton, _exportButton })
+            button.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
 
         _addButton.Click += (s, e) => ShowInlineDialog();
         _editButton.Click += (s, e) =>
@@ -375,5 +390,32 @@ public class RuleManagerForm : Form
             }
             else Close();
         }
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return cp;
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == 0x0201) // WM_LBUTTONDOWN
+        {
+            var pt = PointToClient(new Point((int)m.LParam & 0xFFFF, (int)m.LParam >> 16));
+            if (pt.Y < 36 && pt.X < Width - 44) // title bar except close button
+            {
+                Capture = false;
+                m.Msg = 0x00A1;       // WM_NCLBUTTONDOWN
+                m.WParam = (IntPtr)2; // HTCAPTION
+                DefWndProc(ref m);
+                return;
+            }
+        }
+        base.WndProc(ref m);
     }
 }

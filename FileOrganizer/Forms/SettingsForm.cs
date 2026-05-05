@@ -25,8 +25,8 @@ public class SettingsForm : Form
     private void InitializeComponent()
     {
         Text = "";
-        Size = new Size(380, 280);
-        StartPosition = FormStartPosition.CenterParent;
+        Size = new Size(540, 500);
+        StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         BackColor = Theme.Surface;
@@ -48,17 +48,23 @@ public class SettingsForm : Form
         };
         var closeBtn = new Button
         {
-            Text = "×", Size = new Size(28, 28),
-            Top = 4, Left = Width - 36,
+            Text = "×", Size = new Size(32, 28),
+            Top = 4,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 14f),
-            ForeColor = Theme.Muted, BackColor = Color.Transparent,
+            ForeColor = Theme.Fg, BackColor = Color.FromArgb(60, 63, 70),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Cursor = Cursors.Hand, TabStop = false
         };
         closeBtn.FlatAppearance.BorderSize = 0;
         closeBtn.FlatAppearance.MouseOverBackColor = Theme.Danger;
         closeBtn.Click += (s, e) => Close();
+        void LayoutTitleButtons()
+        {
+            closeBtn.Left = titleBar.ClientSize.Width - closeBtn.Width - 8;
+        }
+        Shown += (s, e) => BeginInvoke(LayoutTitleButtons);
+        titleBar.Resize += (s, e) => LayoutTitleButtons();
         titleBar.Controls.Add(titleLabel);
         titleBar.Controls.Add(closeBtn);
         titleBar.MouseDown += (s, e) =>
@@ -66,16 +72,17 @@ public class SettingsForm : Form
             if (e.Button == MouseButtons.Left)
             {
                 _titleDragging = true;
-                _titleDragStart = e.Location;
+                _titleDragStart = Cursor.Position;
                 _formStartPos = Location;
             }
         };
         titleBar.MouseMove += (s, e) =>
         {
             if (!_titleDragging) return;
+            var screenPos = Cursor.Position;
             Location = new Point(
-                _formStartPos.X + e.X - _titleDragStart.X,
-                _formStartPos.Y + e.Y - _titleDragStart.Y);
+                _formStartPos.X + screenPos.X - _titleDragStart.X,
+                _formStartPos.Y + screenPos.Y - _titleDragStart.Y);
         };
         titleBar.MouseUp += (s, e) => _titleDragging = false;
         Controls.Add(titleBar);
@@ -83,41 +90,50 @@ public class SettingsForm : Form
         // --- Body ---
         var body = new Panel
         {
-            Top = 36, Left = 0, Width = Width, Height = Height - 36,
-            Padding = new Padding(20, 16, 20, 16),
+            Dock = DockStyle.Fill,
+            Padding = new Padding(36, 24, 28, 24),
             BackColor = Theme.Surface
         };
-        var y = 4;
+        var contentWidth = 420;
+        var content = new Panel
+        {
+            Width = contentWidth,
+            Height = 388,
+            Left = (540 - contentWidth) / 2,
+            Top = 28,
+            BackColor = Color.Transparent
+        };
+        var y = 12;
 
         _startupCheck = new CheckBox
         {
             Text = "开机自启",
-            Top = y, Left = 0, Width = 300,
+            Top = y, Left = 0, Width = 380,
             Checked = _config.Settings.StartWithWindows
         };
         Theme.StyleCheckBox(_startupCheck);
-        body.Controls.Add(_startupCheck);
-        y += 32;
+        content.Controls.Add(_startupCheck);
+        y += 40;
 
         _contextMenuCheck = new CheckBox
         {
             Text = "鼠标右键菜单 — 在资源管理器中显示\"整理(File Organizer)\"",
-            Top = y, Left = 0, Width = 340,
+            Top = y, Left = 0, Width = 380,
             Checked = _config.Settings.ContextMenuEnabled
         };
         Theme.StyleCheckBox(_contextMenuCheck);
-        body.Controls.Add(_contextMenuCheck);
-        y += 32;
+        content.Controls.Add(_contextMenuCheck);
+        y += 40;
 
         _deleteEmptyDirCheck = new CheckBox
         {
             Text = "移动后删除空的源文件夹",
-            Top = y, Left = 0, Width = 300,
+            Top = y, Left = 0, Width = 380,
             Checked = _config.Settings.DeleteEmptySourceDir
         };
         Theme.StyleCheckBox(_deleteEmptyDirCheck);
-        body.Controls.Add(_deleteEmptyDirCheck);
-        y += 36;
+        content.Controls.Add(_deleteEmptyDirCheck);
+        y += 44;
 
         var conflictLabel = new Label
         {
@@ -125,11 +141,11 @@ public class SettingsForm : Form
             Top = y + 3, Left = 0, AutoSize = true
         };
         Theme.StyleLabel(conflictLabel, muted: true);
-        body.Controls.Add(conflictLabel);
+        content.Controls.Add(conflictLabel);
 
         _conflictCombo = new ComboBox
         {
-            Top = y + 20, Left = 0, Width = 180,
+            Top = y + 22, Left = 0, Width = 200,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         Theme.StyleComboBox(_conflictCombo);
@@ -141,19 +157,23 @@ public class SettingsForm : Form
             "skip" => 3,
             _ => 0
         };
-        body.Controls.Add(_conflictCombo);
+        content.Controls.Add(_conflictCombo);
+        y += 60;
 
         // --- Buttons ---
-        var saveBtn = new Button { Text = "保存", Top = body.Height - 46, Left = body.Width - 172, Width = 70, Height = 28 };
+        var saveBtn = new Button { Text = "保存", Top = 344, Left = contentWidth - 148, Width = 70, Height = 28 };
         Theme.StyleButton(saveBtn, primary: true);
         saveBtn.Click += SaveButton_Click;
+        saveBtn.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
 
-        var cancelBtn = new Button { Text = "取消", Top = body.Height - 46, Left = body.Width - 94, Width = 70, Height = 28 };
+        var cancelBtn = new Button { Text = "取消", Top = 344, Left = contentWidth - 70, Width = 70, Height = 28 };
         Theme.StyleButton(cancelBtn);
         cancelBtn.Click += (s, e) => Close();
+        cancelBtn.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
 
-        body.Controls.Add(saveBtn);
-        body.Controls.Add(cancelBtn);
+        content.Controls.Add(saveBtn);
+        content.Controls.Add(cancelBtn);
+        body.Controls.Add(content);
         Controls.Add(body);
 
         // Paint border
@@ -201,4 +221,31 @@ public class SettingsForm : Form
 
         Close();
     }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+                return cp;
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x0201) // WM_LBUTTONDOWN
+            {
+                var pt = PointToClient(new Point((int)m.LParam & 0xFFFF, (int)m.LParam >> 16));
+                if (pt.Y < 36 && pt.X < Width - 44) // title bar except close button
+                {
+                    Capture = false;
+                    m.Msg = 0x00A1;       // WM_NCLBUTTONDOWN
+                    m.WParam = (IntPtr)2; // HTCAPTION
+                    DefWndProc(ref m);
+                    return;
+                }
+            }
+            base.WndProc(ref m);
+        }
 }
