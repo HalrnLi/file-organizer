@@ -25,4 +25,5 @@ public class Settings
     public bool DeleteEmptySourceDir { get; set; } = false;
     public int FloatingWindowX { get; set; } = 100;
     public int FloatingWindowY { get; set; } = 100;
+    public string? LastUsedRuleId { get; set; }
 }

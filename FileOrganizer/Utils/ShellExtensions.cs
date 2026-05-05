@@ -1,31 +1,45 @@
 using Microsoft.Win32;
+using System.Diagnostics;
 
 namespace FileOrganizer.Utils;
 
 public static class ShellExtensions
 {
-    private const string FileKey = @"Software\Classes\*\shell\FileOrganizer";
-    private const string DirKey = @"Software\Classes\Directory\shell\FileOrganizer";
+    private const string FileKey = @"*\shell\FileOrganizer";
+    private const string DirKey = @"Directory\shell\FileOrganizer";
     private const string MenuText = "整理(File Organizer)";
 
     public static void Register()
     {
         try
         {
-            var exePath = $"\"{Environment.ProcessPath}\" \"%1\"";
+            var exePath = $"\"{Process.GetCurrentProcess().MainModule?.FileName}\" \"%1\"";
 
-            SetRegistryKey(FileKey, MenuText);
-            SetRegistryKey($@"{FileKey}\command", exePath);
-            SetRegistryKey(DirKey, MenuText);
-            SetRegistryKey($@"{DirKey}\command", exePath);
+            // Register for files (*)
+            using var fileKey = Registry.CurrentUser.CreateSubKey(FileKey);
+            fileKey?.SetValue("", MenuText);
+            using var fileCmd = Registry.CurrentUser.CreateSubKey($@"{FileKey}\command");
+            fileCmd?.SetValue("", exePath);
+
+            // Register for directories
+            using var dirKey = Registry.CurrentUser.CreateSubKey(DirKey);
+            dirKey?.SetValue("", MenuText);
+            using var dirCmd = Registry.CurrentUser.CreateSubKey($@"{DirKey}\command");
+            dirCmd?.SetValue("", exePath);
+
+            // Also register for background (right-click in empty space)
+            using var bgKey = Registry.CurrentUser.CreateSubKey(@"Directory\Background\shell\FileOrganizer");
+            bgKey?.SetValue("", MenuText);
+            using var bgCmd = Registry.CurrentUser.CreateSubKey(@"Directory\Background\shell\FileOrganizer\command");
+            bgCmd?.SetValue("", exePath);
         }
         catch (Exception ex)
         {
-            System.Windows.Forms.MessageBox.Show(
-                $"注册右键菜单失败: {ex.Message}\n\n请尝试以管理员身份运行。",
+            MessageBox.Show(
+                $"注册右键菜单失败: {ex.Message}",
                 "注册失败",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Warning);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
     }
 
@@ -33,33 +47,17 @@ public static class ShellExtensions
     {
         try
         {
-            DeleteRegistryKey(FileKey);
-            DeleteRegistryKey(DirKey);
+            Registry.CurrentUser.DeleteSubKeyTree(@"*\shell\FileOrganizer", false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Directory\shell\FileOrganizer", false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Directory\Background\shell\FileOrganizer", false);
         }
         catch (Exception ex)
         {
-            System.Windows.Forms.MessageBox.Show(
+            MessageBox.Show(
                 $"卸载右键菜单失败: {ex.Message}",
                 "卸载失败",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Warning);
-        }
-    }
-
-    private static void SetRegistryKey(string path, string value)
-    {
-        using var key = Registry.CurrentUser.CreateSubKey(path);
-        key.SetValue("", value);
-    }
-
-    private static void DeleteRegistryKey(string path)
-    {
-        var parent = Path.GetDirectoryName(path.Replace('\\', '/')).Replace('/', '\\');
-        var name = Path.GetFileName(path);
-        if (parent != null)
-        {
-            using var parentKey = Registry.CurrentUser.OpenSubKey(parent, writable: true);
-            parentKey?.DeleteSubKeyTree(name, throwOnMissingSubKey: false);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
         }
     }
 }

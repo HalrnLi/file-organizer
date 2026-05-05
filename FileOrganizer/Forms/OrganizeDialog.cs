@@ -10,12 +10,21 @@ public class OrganizeDialog : Form
     private TextBox? _nameBox;
     private TextBox? _templateBox;
     private ListBox? _fileListBox;
-    private FlowLayoutPanel _tagPanel;
-    private ComboBox _conflictCombo;
+    private ComboBox _tagCombo;
     private Button _moveButton;
     private ProgressBar? _progressBar;
     private Label? _progressLabel;
-    private RadioButton? _selectedTag;
+    private Panel? _customPathPanel;
+    private TextBox? _customNameBox;
+    private TextBox? _customPathBox;
+
+    private class TagItem
+    {
+        public string Text { get; }
+        public Rule? Rule { get; }
+        public TagItem(string text, Rule? rule) { Text = text; Rule = rule; }
+        public override string ToString() => Text;
+    }
 
     public OrganizeDialog(List<string> sourceFiles, ConfigManager config)
     {
@@ -28,7 +37,7 @@ public class OrganizeDialog : Form
     private void InitializeComponent()
     {
         Text = _isMultiFile ? $"整理 {_sourceFiles.Count} 个文件" : "整理文件";
-        Size = new Size(520, 450);
+        Size = new Size(520, _isMultiFile ? 440 : 310);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
@@ -39,7 +48,6 @@ public class OrganizeDialog : Form
 
         if (_isMultiFile)
         {
-            // --- File list ---
             var fileLabel = new Label
             {
                 Text = $"已选择 {_sourceFiles.Count} 个文件:",
@@ -58,7 +66,6 @@ public class OrganizeDialog : Form
             Controls.Add(_fileListBox);
             y += 108;
 
-            // --- Rename template ---
             var templateLabel = new Label
             {
                 Text = "重命名模板 (留空保持原名, {n}=序号, {name}=原名):",
@@ -67,16 +74,12 @@ public class OrganizeDialog : Form
             Controls.Add(templateLabel);
             y += 20;
 
-            _templateBox = new TextBox
-            {
-                Top = y, Left = 15, Width = 480, Text = ""
-            };
+            _templateBox = new TextBox { Top = y, Left = 15, Width = 480, Text = "" };
             Controls.Add(_templateBox);
             y += 30;
         }
         else
         {
-            // --- Single file name ---
             var fileLabel = new Label { Text = "文件:", Top = y, Left = 15, Width = 50 };
             Controls.Add(fileLabel);
 
@@ -89,41 +92,113 @@ public class OrganizeDialog : Form
             y += 30;
         }
 
-        // --- Tag selection ---
+        // --- Tag dropdown ---
         var tagLabel = new Label { Text = "目标标签:", Top = y, Left = 15, Width = 80 };
         Controls.Add(tagLabel);
         y += 22;
 
-        _tagPanel = new FlowLayoutPanel
+        _tagCombo = new ComboBox
         {
-            Top = y, Left = 15, Width = 480, Height = 120,
-            FlowDirection = FlowDirection.TopDown,
-            AutoScroll = true,
-            BorderStyle = BorderStyle.Fixed3D
-        };
-        LoadTags();
-        Controls.Add(_tagPanel);
-        y += 128;
-
-        // --- Conflict action ---
-        var conflictLabel = new Label { Text = "冲突时:", Top = y + 2, Left = 15, Width = 60 };
-        Controls.Add(conflictLabel);
-
-        _conflictCombo = new ComboBox
-        {
-            Top = y, Left = 75, Width = 200,
+            Top = y, Left = 15, Width = 480,
             DropDownStyle = ComboBoxStyle.DropDownList
         };
-        _conflictCombo.Items.AddRange(new object[] { "弹窗选择", "自动加序号", "覆盖", "跳过" });
-        _conflictCombo.SelectedIndex = _config.Settings.DefaultConflictAction switch
+        _tagCombo.SelectedIndexChanged += (s, e) =>
         {
-            "autoRename" => 1,
-            "overwrite" => 2,
-            "skip" => 3,
-            _ => 0
+            if (_tagCombo.SelectedItem is TagItem item)
+            {
+                if (item.Rule != null)
+                {
+                    if (_customPathPanel != null) _customPathPanel.Visible = false;
+                    if (_moveButton != null) _moveButton.Enabled = true;
+                }
+                else
+                {
+                    if (_customPathPanel != null) _customPathPanel.Visible = true;
+                    if (_moveButton != null)
+                        _moveButton.Enabled = _customPathBox != null
+                            && !string.IsNullOrWhiteSpace(_customPathBox.Text)
+                            && _customNameBox != null
+                            && !string.IsNullOrWhiteSpace(_customNameBox.Text);
+                }
+            }
         };
-        Controls.Add(_conflictCombo);
+        LoadTags();
+        Controls.Add(_tagCombo);
         y += 30;
+
+        // --- Custom path panel (hidden until "新增路径" is selected) ---
+        _customPathPanel = new Panel
+        {
+            Top = y, Left = 15, Width = 480, Height = 58,
+            Visible = false
+        };
+
+        var cpNameLabel = new Label { Text = "标签名:", Top = 5, Left = 0, Width = 60 };
+        _customNameBox = new TextBox { Top = 2, Left = 65, Width = 410 };
+        _customNameBox.TextChanged += OnCustomFieldChanged;
+
+        var cpPathLabel = new Label { Text = "路径:", Top = 33, Left = 0, Width = 60 };
+        _customPathBox = new TextBox { Top = 30, Left = 65, Width = 285 };
+        _customPathBox.TextChanged += OnCustomFieldChanged;
+
+        var browseBtn = new Button { Text = "浏览...", Top = 29, Left = 355, Width = 60, Height = 25 };
+        browseBtn.Click += (s, e) =>
+        {
+            using var dlg = new FolderBrowserDialog
+            {
+                SelectedPath = _customPathBox!.Text,
+                ShowNewFolderButton = true
+            };
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+                _customPathBox.Text = dlg.SelectedPath;
+        };
+
+        var newFolderBtn = new Button { Text = "新建", Top = 29, Left = 420, Width = 55, Height = 25 };
+        newFolderBtn.Click += (s, e) =>
+        {
+            var basePath = _customPathBox!.Text.Trim();
+            if (string.IsNullOrWhiteSpace(basePath) || !Directory.Exists(basePath))
+                basePath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+            var inputForm = new Form
+            {
+                Text = "新建文件夹",
+                Size = new Size(320, 130),
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ShowInTaskbar = false
+            };
+            var inputBox = new TextBox { Top = 15, Left = 15, Width = 270, Text = "新建文件夹" };
+            var okBtn = new Button { Text = "确定", Top = 50, Left = 130, Width = 70 };
+            var cancelBtn = new Button { Text = "取消", Top = 50, Left = 210, Width = 70 };
+            okBtn.Click += (s2, e2) => { inputForm.DialogResult = DialogResult.OK; inputForm.Close(); };
+            cancelBtn.Click += (s2, e2) => { inputForm.DialogResult = DialogResult.Cancel; inputForm.Close(); };
+            inputForm.Controls.AddRange(new Control[] { inputBox, okBtn, cancelBtn });
+
+            if (inputForm.ShowDialog(this) == DialogResult.OK && !string.IsNullOrWhiteSpace(inputBox.Text))
+            {
+                try
+                {
+                    var newPath = Path.Combine(basePath, inputBox.Text.Trim());
+                    Directory.CreateDirectory(newPath);
+                    _customPathBox.Text = newPath;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"创建文件夹失败:\n{ex.Message}", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        };
+
+        _customPathPanel.Controls.AddRange(new Control[] {
+            cpNameLabel, _customNameBox,
+            cpPathLabel, _customPathBox, browseBtn, newFolderBtn
+        });
+        Controls.Add(_customPathPanel);
+        y += 62;
 
         // --- Progress bar (hidden initially) ---
         _progressBar = new ProgressBar
@@ -159,54 +234,99 @@ public class OrganizeDialog : Form
         };
         cancelButton.Click += (s, e) => Close();
         Controls.Add(cancelButton);
+
+        AcceptButton = _moveButton;
+
+        if (_tagCombo.SelectedIndex >= 0 && _tagCombo.SelectedItem is TagItem item && item.Rule != null)
+            _moveButton.Enabled = true;
+    }
+
+    private void OnCustomFieldChanged(object? sender, EventArgs e)
+    {
+        if (_moveButton == null) return;
+        _moveButton.Enabled = !string.IsNullOrWhiteSpace(_customPathBox!.Text)
+                           && !string.IsNullOrWhiteSpace(_customNameBox!.Text);
     }
 
     private void LoadTags()
     {
-        foreach (var rule in _config.Rules)
-        {
-            var rb = new RadioButton
-            {
-                Text = $"{rule.Name}  →  {rule.Path}",
-                Tag = rule,
-                AutoSize = true,
-                Padding = new Padding(5, 3, 5, 3)
-            };
-            rb.CheckedChanged += (s, e) =>
-            {
-                if (rb.Checked)
-                {
-                    _selectedTag = rb;
-                    _moveButton.Enabled = true;
-                }
-            };
-            _tagPanel.Controls.Add(rb);
-        }
-    }
+        _tagCombo.Items.Clear();
+        int selectIndex = -1;
+        var lastId = _config.Settings.LastUsedRuleId;
 
-    private ConflictAction GetSelectedConflictAction() => _conflictCombo.SelectedIndex switch
-    {
-        1 => ConflictAction.AutoRename,
-        2 => ConflictAction.Overwrite,
-        3 => ConflictAction.Skip,
-        _ => ConflictAction.Prompt
-    };
+        for (int i = 0; i < _config.Rules.Count; i++)
+        {
+            var rule = _config.Rules[i];
+            _tagCombo.Items.Add(new TagItem($"{rule.Name}  →  {rule.Path}", rule));
+            if (rule.Id == lastId)
+                selectIndex = i;
+        }
+        _tagCombo.Items.Add(new TagItem("📁 新增路径...", null));
+
+        if (selectIndex >= 0)
+            _tagCombo.SelectedIndex = selectIndex;
+    }
 
     private void MoveButton_Click(object? sender, EventArgs e)
     {
-        if (_selectedTag?.Tag is not Rule rule) return;
+        if (_tagCombo.SelectedItem is not TagItem item) return;
 
-        var mover = new FileMover(_config);
-        var conflictAction = GetSelectedConflictAction();
-
-        if (_isMultiFile)
+        Rule rule;
+        if (item.Rule != null)
         {
-            MoveAllFiles(mover, rule, conflictAction);
+            rule = item.Rule;
         }
         else
         {
-            MoveSingleFile(mover, rule, conflictAction);
+            var name = _customNameBox!.Text.Trim();
+            var path = _customPathBox!.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                MessageBox.Show("请输入标签名", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _customNameBox.Focus();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                MessageBox.Show("请输入目标路径", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                _customPathBox.Focus();
+                return;
+            }
+            if (!Directory.Exists(path))
+            {
+                var dr = MessageBox.Show($"路径不存在:\n{path}\n\n是否创建该目录？", "路径不存在",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (dr == DialogResult.No) return;
+                try { Directory.CreateDirectory(path); }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"创建目录失败:\n{ex.Message}", "错误",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+
+            rule = new Rule { Name = name, Path = path };
+            _config.AddRule(rule);
         }
+
+        _config.Settings.LastUsedRuleId = rule.Id;
+        _config.SaveSettings();
+
+        var mover = new FileMover(_config);
+        var conflictAction = _config.Settings.DefaultConflictAction switch
+        {
+            "autoRename" => ConflictAction.AutoRename,
+            "overwrite" => ConflictAction.Overwrite,
+            "skip" => ConflictAction.Skip,
+            _ => ConflictAction.Prompt
+        };
+
+        if (_isMultiFile)
+            MoveAllFiles(mover, rule, conflictAction);
+        else
+            MoveSingleFile(mover, rule, conflictAction);
     }
 
     private void MoveSingleFile(FileMover mover, Rule rule, ConflictAction conflictAction)
@@ -225,8 +345,6 @@ public class OrganizeDialog : Form
             if (result.Success)
             {
                 FileMover.CleanupSourceDirIfEmpty(_sourceFiles[0], _config);
-                MessageBox.Show($"文件已移动到:\n{result.DestinationPath}", "完成",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Close();
                 return;
             }
@@ -291,7 +409,6 @@ public class OrganizeDialog : Form
             }
             else if (result.ErrorMessage == "CONFLICT_PROMPT")
             {
-                // For multi-file, auto-rename on conflict instead of prompting per file
                 var autoResult = mover.MoveFile(file, rule.Path, fileName, ConflictAction.AutoRename);
                 if (autoResult.Success)
                 {
@@ -316,11 +433,14 @@ public class OrganizeDialog : Form
             Application.DoEvents();
         }
 
-        MessageBox.Show(
-            $"整理完成!\n成功: {success} 个\n失败: {fail} 个",
-            "整理结果",
-            MessageBoxButtons.OK,
-            fail > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+        if (fail > 0)
+        {
+            MessageBox.Show(
+                $"整理完成!\n成功: {success} 个\n失败: {fail} 个",
+                "整理结果",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
 
         Close();
     }

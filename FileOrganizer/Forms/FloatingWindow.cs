@@ -1,11 +1,13 @@
 using FileOrganizer.Core;
+using System.Drawing;
+using System.Windows.Forms;
 
 namespace FileOrganizer.Forms;
 
 public class FloatingWindow : Form
 {
     private readonly ConfigManager _config;
-    private NotifyIcon _trayIcon;
+    private NotifyIcon _trayIcon = null!;
     private const int WindowSize = 80;
     private const int HoverOpacity = 90;
     private Point _dragStart;
@@ -90,7 +92,8 @@ public class FloatingWindow : Form
             ForeColor = Color.White,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleCenter,
-            AllowDrop = true
+            AllowDrop = true,
+            Cursor = Cursors.Hand
         };
         Controls.Add(iconLabel);
 
@@ -100,79 +103,28 @@ public class FloatingWindow : Form
             Location = new Point(_config.Settings.FloatingWindowX, _config.Settings.FloatingWindowY);
         }
 
-        // File drag-drop
-        DragEnter += (s, e) =>
-        {
-            if (e.Data!.GetDataPresent(DataFormats.FileDrop))
-            {
-                e.Effect = DragDropEffects.Move;
-                Opacity = HoverOpacity / 100.0;
-                BackColor = Color.FromArgb(41, 128, 185);
-            }
-        };
+        // File drag-drop on form
+        DragEnter += FloatingWindow_DragEnter;
+        DragLeave += FloatingWindow_DragLeave;
+        DragDrop += FloatingWindow_DragDrop;
 
-        DragLeave += (s, e) =>
-        {
-            Opacity = 0.5;
-            BackColor = Color.FromArgb(52, 73, 94);
-        };
+        // File drag-drop on iconLabel (this is what gets triggered when dropping files)
+        iconLabel.DragEnter += FloatingWindow_DragEnter;
+        iconLabel.DragLeave += FloatingWindow_DragLeave;
+        iconLabel.DragDrop += FloatingWindow_DragDrop;
 
-        DragDrop += (s, e) =>
-        {
-            Opacity = 0.5;
-            BackColor = Color.FromArgb(52, 73, 94);
+        // Window drag-move on iconLabel
+        iconLabel.MouseDown += IconLabel_MouseDown;
+        iconLabel.MouseMove += IconLabel_MouseMove;
+        iconLabel.MouseUp += IconLabel_MouseUp;
 
-            if (e.Data!.GetDataPresent(DataFormats.FileDrop))
-            {
-                var files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
-                if (files.Length > 0)
-                {
-                    using var dialog = new OrganizeDialog(files.ToList(), _config);
-                    dialog.ShowDialog(this);
-                }
-            }
-        };
-
-        // Window drag-move
-        MouseDown += (s, e) =>
-        {
-            if (e.Button == MouseButtons.Left)
-            {
-                _isDragging = true;
-                _dragStart = e.Location;
-            }
-        };
-
-        MouseMove += (s, e) =>
-        {
-            if (_isDragging)
-            {
-                Left += e.X - _dragStart.X;
-                Top += e.Y - _dragStart.Y;
-            }
-        };
-
-        MouseUp += (s, e) =>
-        {
-            if (_isDragging)
-            {
-                _isDragging = false;
-                var screen = Screen.FromPoint(Location).WorkingArea;
-                Left = Math.Clamp(Left, 0, screen.Width - Width);
-                Top = Math.Clamp(Top, 0, screen.Height - Height);
-                _config.Settings.FloatingWindowX = Left;
-                _config.Settings.FloatingWindowY = Top;
-                _config.SaveSettings();
-            }
-        };
-
-        // Right-click context menu (on floating window)
+        // Right-click context menu on iconLabel
         var ctxMenu = new ContextMenuStrip();
         ctxMenu.Items.Add("规则管理", null, (s, e) => ShowRuleManager());
         ctxMenu.Items.Add("设置", null, (s, e) => ShowSettings());
         ctxMenu.Items.Add("-");
         ctxMenu.Items.Add("退出", null, (s, e) => ExitApp());
-        ContextMenuStrip = ctxMenu;
+        iconLabel.ContextMenuStrip = ctxMenu;
 
         // Minimize to tray on close
         FormClosing += (s, e) =>
@@ -183,6 +135,78 @@ public class FloatingWindow : Form
                 Hide();
             }
         };
+    }
+
+    private void IconLabel_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button == MouseButtons.Left)
+        {
+            _isDragging = true;
+            _dragStart = e.Location;
+        }
+    }
+
+    private void IconLabel_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (_isDragging)
+        {
+            Left += e.X - _dragStart.X;
+            Top += e.Y - _dragStart.Y;
+        }
+    }
+
+    private void IconLabel_MouseUp(object? sender, MouseEventArgs e)
+    {
+        if (_isDragging)
+        {
+            _isDragging = false;
+            var screen = Screen.FromPoint(Location).WorkingArea;
+            Left = Math.Clamp(Left, 0, screen.Width - Width);
+            Top = Math.Clamp(Top, 0, screen.Height - Height);
+            _config.Settings.FloatingWindowX = Left;
+            _config.Settings.FloatingWindowY = Top;
+            Task.Run(() => _config.SaveSettings());
+        }
+    }
+
+    private void FloatingWindow_DragEnter(object? sender, DragEventArgs e)
+    {
+        if (e.Data!.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effect = DragDropEffects.Move;
+            Opacity = HoverOpacity / 100.0;
+            BackColor = Color.FromArgb(41, 128, 185);
+        }
+    }
+
+    private void FloatingWindow_DragLeave(object? sender, EventArgs e)
+    {
+        Opacity = 0.5;
+        BackColor = Color.FromArgb(52, 73, 94);
+    }
+
+    private void FloatingWindow_DragDrop(object? sender, DragEventArgs e)
+    {
+        Opacity = 0.5;
+        BackColor = Color.FromArgb(52, 73, 94);
+
+        if (e.Data!.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop)!;
+            if (files.Length > 0)
+            {
+                try
+                {
+                    using var dialog = new OrganizeDialog(files.ToList(), _config);
+                    dialog.ShowDialog(this);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"错误: {ex}", "异常",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
     }
 
     protected override void Dispose(bool disposing)

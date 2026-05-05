@@ -1,4 +1,5 @@
 using FileOrganizer.Core;
+using Xunit;
 
 namespace FileOrganizer.Tests;
 

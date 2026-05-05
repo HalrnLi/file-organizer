@@ -102,7 +102,7 @@ public class SettingsForm : Form
             if (_startupCheck.Checked)
                 startupKey.SetValue("FileOrganizer", $"\"{Environment.ProcessPath}\"");
             else
-                startupKey.DeleteValue("FileOrganizer", throwOnMissingSubKey: false);
+                startupKey.DeleteValue("FileOrganizer", false);
             startupKey.Dispose();
         }
 
